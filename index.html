@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commodore 64 - For Alan the IT Guy</title>
+    <style>
+        @font-face {
+            font-family: 'C64';
+            src: url('https://fonts.cdnfonts.com/s/15127/C64_Pro_Mono-STYLE.woff') format('woff');
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #40318d;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            font-family: 'C64', 'Courier New', monospace;
+        }
+
+        .monitor {
+            background: #2a2a2a;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow:
+                0 0 0 4px #1a1a1a,
+                0 0 0 8px #3a3a3a,
+                0 20px 40px rgba(0,0,0,0.5);
+        }
+
+        .screen-container {
+            background: #000;
+            border-radius: 10px;
+            padding: 20px;
+            border: 3px solid #1a1a1a;
+        }
+
+        .screen {
+            width: 640px;
+            height: 400px;
+            background-color: #40318d;
+            border: 4px solid #7869c4;
+            padding: 10px;
+            overflow: hidden;
+            position: relative;
+            /* CRT effect */
+            background-image:
+                linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.03));
+            background-size: 100% 2px, 3px 100%;
+        }
+
+        .screen::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.3) 100%);
+            pointer-events: none;
+        }
+
+        .output {
+            color: #7869c4;
+            font-family: 'C64', 'Courier New', monospace;
+            font-size: 16px;
+            line-height: 1.2;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            height: calc(100% - 25px);
+            overflow-y: auto;
+        }
+
+        .input-line {
+            display: flex;
+            align-items: center;
+            color: #7869c4;
+            font-family: 'C64', 'Courier New', monospace;
+            font-size: 16px;
+        }
+
+        .prompt {
+            color: #7869c4;
+        }
+
+        #input {
+            background: transparent;
+            border: none;
+            color: #7869c4;
+            font-family: 'C64', 'Courier New', monospace;
+            font-size: 16px;
+            outline: none;
+            flex: 1;
+            caret-color: #7869c4;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 10px;
+            height: 16px;
+            background-color: #7869c4;
+            animation: blink 0.5s infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .brand {
+            text-align: center;
+            margin-top: 15px;
+            color: #888;
+            font-family: 'Arial', sans-serif;
+            font-size: 14px;
+            letter-spacing: 2px;
+        }
+
+        .power-led {
+            width: 10px;
+            height: 10px;
+            background: #ff0000;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 10px;
+            box-shadow: 0 0 10px #ff0000;
+            animation: glow 2s infinite;
+        }
+
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 5px #ff0000; }
+            50% { box-shadow: 0 0 15px #ff0000; }
+        }
+
+        .hidden-input {
+            position: absolute;
+            left: -9999px;
+        }
+
+        /* Scrollbar styling */
+        .output::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .output::-webkit-scrollbar-track {
+            background: #40318d;
+        }
+
+        .output::-webkit-scrollbar-thumb {
+            background: #7869c4;
+        }
+    </style>
+</head>
+<body>
+    <div class="monitor">
+        <div class="screen-container">
+            <div class="screen" id="screen">
+                <div class="output" id="output"></div>
+                <div class="input-line">
+                    <span class="prompt"></span>
+                    <input type="text" id="input" autocomplete="off" autofocus>
+                    <span class="cursor" id="cursor"></span>
+                </div>
+            </div>
+        </div>
+        <div class="brand">
+            <span class="power-led"></span>
+            COMMODORE 64 - FOR ALAN THE IT GUY
+        </div>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+        const screen = document.getElementById('screen');
+
+        // C64 color palette
+        const colors = {
+            blue: '#40318d',
+            lightBlue: '#7869c4',
+            white: '#ffffff',
+            red: '#9f4e44',
+            cyan: '#6abfc6',
+            purple: '#a057a3',
+            green: '#5cab5e',
+            yellow: '#c9d487'
+        };
+
+        // Memory for variables
+        let variables = {};
+        let programLines = {};
+
+        // Boot sequence
+        const bootText = `
+    **** COMMODORE 64 BASIC V2 ****
+
+ 64K RAM SYSTEM  38911 BASIC BYTES FREE
+
+READY.
+`;
+
+        // Special message for Alan
+        const alanMessage = `
+**** SPECIAL MESSAGE FOR ALAN ****
+
+GREETINGS ALAN THE IT GUY!
+
+THIS COMMODORE 64 SIMULATOR WAS CREATED
+JUST FOR YOU BY CLAUDE AI.
+
+REMEMBER THE GOOD OLD DAYS OF:
+- LOADING GAMES FROM CASSETTE TAPES
+- WAITING 10 MINUTES FOR A PROGRAM
+- PEEKING AND POKING MEMORY
+- SPRITE GRAPHICS AND SID MUSIC
+
+TYPE 'HELP' FOR AVAILABLE COMMANDS
+TYPE 'GAMES' TO SEE SOME FUN STUFF
+
+READY.
+`;
+
+        // Help text
+        const helpText = `
+AVAILABLE COMMANDS:
+-------------------
+PRINT "TEXT"  - DISPLAY TEXT
+LET X = 5     - SET VARIABLE
+? X           - PRINT VARIABLE VALUE
+LIST          - LIST PROGRAM
+RUN           - RUN PROGRAM
+NEW           - CLEAR PROGRAM
+CLR           - CLEAR SCREEN
+LOAD          - PRETEND TO LOAD
+POKE          - POKE MEMORY (DEMO)
+PEEK          - PEEK MEMORY (DEMO)
+SYS           - SYSTEM CALL (DEMO)
+GAMES         - SHOW MINI GAMES
+ALAN          - SPECIAL MESSAGE
+HELP          - THIS HELP TEXT
+ABOUT         - ABOUT THIS PROJECT
+
+READY.
+`;
+
+        // Games menu
+        const gamesText = `
+**** MINI GAMES & DEMOS ****
+
+TYPE THESE COMMANDS TO PLAY:
+
+MAZE      - GENERATE RANDOM MAZE
+STARS     - STARFIELD ANIMATION
+10PRINT   - CLASSIC 10 PRINT DEMO
+MATRIX    - MATRIX RAIN EFFECT
+PETSCII   - PETSCII ART DEMO
+FORTUNE   - RANDOM 80S FORTUNE
+
+READY.
+`;
+
+        // About text
+        const aboutText = `
+**** ABOUT THIS PROJECT ****
+
+CREATED: JANUARY 6, 2026
+BY: CLAUDE AI (OPUS 4.5)
+FOR: ALAN THE IT GUY
+
+THIS IS A BROWSER-BASED TRIBUTE TO
+THE LEGENDARY COMMODORE 64 COMPUTER.
+
+THE C64 WAS RELEASED IN 1982 AND
+BECAME THE BEST-SELLING COMPUTER
+OF ALL TIME WITH ~17 MILLION UNITS.
+
+BUILT WITH: HTML, CSS, JAVASCRIPT
+HOSTED ON: AZURE DEVOPS
+NOSTALGIA LEVEL: MAXIMUM
+
+READY.
+`;
+
+        let isAnimating = false;
+
+        // Type text with delay
+        async function typeText(text, delay = 10) {
+            isAnimating = true;
+            for (let char of text) {
+                output.innerHTML += char;
+                output.scrollTop = output.scrollHeight;
+                await sleep(delay);
+            }
+            isAnimating = false;
+        }
+
+        function print(text) {
+            output.innerHTML += text + '\n';
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        // Boot sequence
+        async function boot() {
+            await typeText(bootText, 15);
+        }
+
+        // Process commands
+        async function processCommand(cmd) {
+            const upperCmd = cmd.toUpperCase().trim();
+
+            // Check for line numbers (BASIC program entry)
+            const lineMatch = cmd.match(/^(\d+)\s+(.+)$/);
+            if (lineMatch) {
+                const lineNum = parseInt(lineMatch[1]);
+                const code = lineMatch[2];
+                programLines[lineNum] = code;
+                print('');
+                return;
+            }
+
+            // Commands
+            if (upperCmd === '' ) {
+                return;
+            } else if (upperCmd === 'HELP') {
+                await typeText(helpText, 5);
+            } else if (upperCmd === 'ALAN') {
+                await typeText(alanMessage, 10);
+            } else if (upperCmd === 'GAMES') {
+                await typeText(gamesText, 5);
+            } else if (upperCmd === 'ABOUT') {
+                await typeText(aboutText, 5);
+            } else if (upperCmd === 'CLR' || upperCmd === 'CLS') {
+                output.innerHTML = '';
+                print('READY.');
+            } else if (upperCmd === 'NEW') {
+                programLines = {};
+                variables = {};
+                print('READY.');
+            } else if (upperCmd === 'LIST') {
+                const lines = Object.keys(programLines).map(n => parseInt(n)).sort((a,b) => a-b);
+                if (lines.length === 0) {
+                    print('READY.');
+                } else {
+                    for (let num of lines) {
+                        print(`${num} ${programLines[num]}`);
+                    }
+                    print('\nREADY.');
+                }
+            } else if (upperCmd === 'RUN') {
+                await runProgram();
+            } else if (upperCmd.startsWith('PRINT ') || upperCmd.startsWith('? ')) {
+                const expr = cmd.substring(upperCmd.startsWith('PRINT') ? 6 : 2).trim();
+                print(evaluateExpression(expr));
+                print('READY.');
+            } else if (upperCmd.startsWith('LET ')) {
+                const match = cmd.match(/LET\s+([A-Z]\$?)\s*=\s*(.+)/i);
+                if (match) {
+                    variables[match[1].toUpperCase()] = evaluateExpression(match[2]);
+                }
+                print('READY.');
+            } else if (upperCmd === 'LOAD') {
+                print('PRESS PLAY ON TAPE');
+                await sleep(1000);
+                print('OK');
+                await sleep(500);
+                print('SEARCHING...');
+                await sleep(2000);
+                print('FOUND: AWESOME_GAME');
+                await sleep(1000);
+                print('LOADING...');
+                await sleep(3000);
+                print('READY.');
+            } else if (upperCmd.startsWith('POKE')) {
+                print('POKE ACCEPTED (DEMO MODE)');
+                print('READY.');
+            } else if (upperCmd.startsWith('PEEK')) {
+                print(Math.floor(Math.random() * 256));
+                print('READY.');
+            } else if (upperCmd.startsWith('SYS')) {
+                print('EXECUTING MACHINE CODE...');
+                await sleep(500);
+                print('SYS CALL COMPLETE (DEMO MODE)');
+                print('READY.');
+            } else if (upperCmd === 'MAZE') {
+                await generateMaze();
+            } else if (upperCmd === 'STARS') {
+                await starfield();
+            } else if (upperCmd === '10PRINT') {
+                await tenPrint();
+            } else if (upperCmd === 'MATRIX') {
+                await matrixRain();
+            } else if (upperCmd === 'PETSCII') {
+                await petsciiArt();
+            } else if (upperCmd === 'FORTUNE') {
+                fortune();
+            } else {
+                print('?SYNTAX ERROR');
+                print('READY.');
+            }
+        }
+
+        function evaluateExpression(expr) {
+            // Handle string literals
+            const strMatch = expr.match(/^"(.*)"/);
+            if (strMatch) return strMatch[1];
+
+            // Handle variables
+            if (variables[expr.toUpperCase()]) {
+                return variables[expr.toUpperCase()];
+            }
+
+            // Handle numbers
+            if (!isNaN(expr)) return expr;
+
+            // Try to evaluate simple math
+            try {
+                return eval(expr.replace(/[A-Z]\$?/gi, m => variables[m.toUpperCase()] || 0));
+            } catch {
+                return expr;
+            }
+        }
+
+        async function runProgram() {
+            const lines = Object.keys(programLines).map(n => parseInt(n)).sort((a,b) => a-b);
+            for (let num of lines) {
+                const code = programLines[num];
+                const upperCode = code.toUpperCase();
+
+                if (upperCode.startsWith('PRINT ') || upperCode.startsWith('? ')) {
+                    const expr = code.substring(upperCode.startsWith('PRINT') ? 6 : 2).trim();
+                    print(evaluateExpression(expr));
+                } else if (upperCode.startsWith('FOR ')) {
+                    // Simple FOR loop support
+                    const match = code.match(/FOR\s+([A-Z])\s*=\s*(\d+)\s+TO\s+(\d+)/i);
+                    if (match) {
+                        const varName = match[1].toUpperCase();
+                        const start = parseInt(match[2]);
+                        const end = parseInt(match[3]);
+                        for (let i = start; i <= end; i++) {
+                            variables[varName] = i;
+                            // Find and execute NEXT
+                        }
+                    }
+                }
+                await sleep(50);
+            }
+            print('READY.');
+        }
+
+        // Mini games and demos
+        async function generateMaze() {
+            print('GENERATING MAZE...\n');
+            for (let i = 0; i < 20; i++) {
+                let line = '';
+                for (let j = 0; j < 40; j++) {
+                    line += Math.random() > 0.5 ? '/' : '\\';
+                }
+                print(line);
+                await sleep(50);
+            }
+            print('\nREADY.');
+        }
+
+        async function tenPrint() {
+            print('10 PRINT CHR$(205.5+RND(1));:GOTO 10\n');
+            await sleep(500);
+            for (let i = 0; i < 15; i++) {
+                let line = '';
+                for (let j = 0; j < 40; j++) {
+                    line += Math.random() > 0.5 ? '╱' : '╲';
+                }
+                print(line);
+                await sleep(30);
+            }
+            print('\nBREAK IN LINE 10');
+            print('READY.');
+        }
+
+        async function starfield() {
+            print('STARFIELD - PRESS ANY KEY TO STOP\n');
+            const width = 40;
+            let running = true;
+
+            const stopHandler = () => { running = false; };
+            document.addEventListener('keydown', stopHandler, { once: true });
+
+            for (let frame = 0; frame < 50 && running; frame++) {
+                let line = '';
+                for (let i = 0; i < width; i++) {
+                    const r = Math.random();
+                    if (r > 0.95) line += '*';
+                    else if (r > 0.9) line += '.';
+                    else if (r > 0.85) line += '+';
+                    else line += ' ';
+                }
+                print(line);
+                await sleep(100);
+            }
+            print('\nREADY.');
+        }
+
+        async function matrixRain() {
+            print('MATRIX RAIN - 80S HACKER STYLE\n');
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%';
+            for (let i = 0; i < 15; i++) {
+                let line = '';
+                for (let j = 0; j < 40; j++) {
+                    if (Math.random() > 0.7) {
+                        line += chars[Math.floor(Math.random() * chars.length)];
+                    } else {
+                        line += ' ';
+                    }
+                }
+                print(line);
+                await sleep(100);
+            }
+            print('\nREADY.');
+        }
+
+        async function petsciiArt() {
+            const art = `
+   ################
+  ##              ##
+ ##  ##      ##    ##
+ #                  #
+ #    ##########    #
+ #   #          #   #
+ ##   ##########   ##
+  ##              ##
+   ################
+
+   COMMODORE RULES!
+`;
+            await typeText(art, 10);
+            print('\nREADY.');
+        }
+
+        function fortune() {
+            const fortunes = [
+                'YOUR CODE WILL COMPILE ON THE FIRST TRY',
+                'A 5.25" FLOPPY HOLDS YOUR DESTINY',
+                'BEWARE OF SYNTAX ERRORS IN LINE 10',
+                'THE LOAD "*",8,1 IS STRONG WITH YOU',
+                'YOUR SPRITE MULTIPLEXER WILL SUCCEED',
+                'A POKE TO 53280 WILL CHANGE YOUR LIFE',
+                'THE SID CHIP SINGS YOUR PRAISES',
+                'PRESS PLAY ON TAPE FOR ENLIGHTENMENT',
+                'YOUR BASIC SKILLS ARE MOST IMPRESSIVE',
+                'THE 6502 PROCESSOR FAVORS YOU TODAY'
+            ];
+            print('\n**** 80S FORTUNE COOKIE ****\n');
+            print(fortunes[Math.floor(Math.random() * fortunes.length)]);
+            print('\nREADY.');
+        }
+
+        // Event handlers
+        input.addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter' && !isAnimating) {
+                const cmd = input.value;
+                print(cmd);
+                input.value = '';
+                await processCommand(cmd);
+            }
+        });
+
+        screen.addEventListener('click', () => {
+            input.focus();
+        });
+
+        // Start
+        boot();
+        input.focus();
+    </script>
+</body>
+</html>
